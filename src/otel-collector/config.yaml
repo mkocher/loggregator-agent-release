@@ -10,6 +10,15 @@ exporters:
 - gomod: go.opentelemetry.io/collector/exporter/otlpexporter v0.83.0
 - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/exporter/fileexporter v0.83.0
 - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/exporter/prometheusexporter v0.83.0
+- gomod: go.opentelemetry.io/collector/exporter/loggregatorexporter v0.83.0
 
 receivers:
 - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.83.0
+- gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/prometheusreceiver v0.83.0
+
+connectors:
+- gomod: go.opentelemetry.io/collector/connector/logmetricsconnector v0.83.0
+
+replaces:
+-  go.opentelemetry.io/collector/connector/logmetricsconnector v0.83.0 => github.com/mkocher/opentelemetry-collector/connector/logmetricsconnector ec966cc22
+-  go.opentelemetry.io/collector/exporter/loggregatorexporter v0.83.0 => github.com/mkocher/opentelemetry-collector/exporter/loggregatorexporter ec966cc22

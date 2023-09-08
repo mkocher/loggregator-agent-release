@@ -9,10 +9,13 @@ import (
 	"go.opentelemetry.io/collector/otelcol"
 	"go.opentelemetry.io/collector/processor"
 	"go.opentelemetry.io/collector/receiver"
+	logmetricsconnector "go.opentelemetry.io/collector/connector/logmetricsconnector"
 	otlpexporter "go.opentelemetry.io/collector/exporter/otlpexporter"
 	fileexporter "github.com/open-telemetry/opentelemetry-collector-contrib/exporter/fileexporter"
 	prometheusexporter "github.com/open-telemetry/opentelemetry-collector-contrib/exporter/prometheusexporter"
+	loggregatorexporter "go.opentelemetry.io/collector/exporter/loggregatorexporter"
 	otlpreceiver "go.opentelemetry.io/collector/receiver/otlpreceiver"
+	prometheusreceiver "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/prometheusreceiver"
 )
 
 func components() (otelcol.Factories, error) {
@@ -27,6 +30,7 @@ func components() (otelcol.Factories, error) {
 
 	factories.Receivers, err = receiver.MakeFactoryMap(
 		otlpreceiver.NewFactory(),
+		prometheusreceiver.NewFactory(),
 	)
 	if err != nil {
 		return otelcol.Factories{}, err
@@ -36,6 +40,7 @@ func components() (otelcol.Factories, error) {
 		otlpexporter.NewFactory(),
 		fileexporter.NewFactory(),
 		prometheusexporter.NewFactory(),
+		loggregatorexporter.NewFactory(),
 	)
 	if err != nil {
 		return otelcol.Factories{}, err
@@ -48,6 +53,7 @@ func components() (otelcol.Factories, error) {
 	}
 
 	factories.Connectors, err = connector.MakeFactoryMap(
+		logmetricsconnector.NewFactory(),
 	)
 	if err != nil {
 		return otelcol.Factories{}, err

@@ -10,8 +10,10 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
+	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
+	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/testing/protocmp"
@@ -21,6 +23,7 @@ var _ = Describe("Client", func() {
 	var (
 		c      Client
 		spyMSC *spyMetricsServiceClient
+		spyLSC *spyLogsServiceClient
 		buf    *gbytes.Buffer
 	)
 
@@ -32,9 +35,15 @@ var _ = Describe("Client", func() {
 			response:    &colmetricspb.ExportMetricsServiceResponse{},
 			responseErr: nil,
 		}
+		spyLSC = &spyLogsServiceClient{
+			requests:    make(chan *collogspb.ExportLogsServiceRequest, 1),
+			response:    &collogspb.ExportLogsServiceResponse{},
+			responseErr: nil,
+		}
 		ctx, cancel := context.WithCancel(context.Background())
 		c = Client{
 			msc:    spyMSC,
+			lsc:    spyLSC,
 			ctx:    ctx,
 			cancel: cancel,
 			l:      log.New(GinkgoWriter, "", 0),
@@ -407,18 +416,46 @@ var _ = Describe("Client", func() {
 			})
 		})
 
-		Context("when given a log", func() {
+		FContext("when given a log", func() {
 			BeforeEach(func() {
-				envelope = &loggregator_v2.Envelope{Message: &loggregator_v2.Envelope_Log{}}
+				envelope = &loggregator_v2.Envelope{Message: &loggregator_v2.Envelope_Log{Log: &loggregator_v2.Log{Payload: []byte{'L'}}}}
 			})
 
 			It("returns nil", func() {
 				Expect(returnedErr).NotTo(HaveOccurred())
 			})
 
-			It("does nothing", func() {
-				Expect(spyMSC.requests).NotTo(Receive())
-				Consistently(buf.Contents()).Should(HaveLen(0))
+			It("succeeds", func() {
+				var lsr *collogspb.ExportLogsServiceRequest
+				Expect(spyLSC.requests).To(Receive(&lsr))
+
+				expectedReq := &collogspb.ExportLogsServiceRequest{
+					ResourceLogs: []*logspb.ResourceLogs{
+						{
+							ScopeLogs: []*logspb.ScopeLogs{
+								{
+									LogRecords: []*logspb.LogRecord{
+										{
+											Body: &commonpb.AnyValue{
+												Value: &commonpb.AnyValue_StringValue{
+													StringValue: "L",
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				}
+
+				s1 := protocmp.SortRepeated(func(x *commonpb.KeyValue, y *commonpb.KeyValue) bool {
+					return x.Key < y.Key
+				})
+				s2 := protocmp.SortRepeated(func(x *metricspb.Metric, y *metricspb.Metric) bool {
+					return x.Name < y.Name
+				})
+				Expect(cmp.Diff(lsr, expectedReq, protocmp.Transform(), s1, s2)).To(BeEmpty())
 			})
 		})
 
@@ -457,6 +494,19 @@ type spyMetricsServiceClient struct {
 }
 
 func (c *spyMetricsServiceClient) Export(ctx context.Context, in *colmetricspb.ExportMetricsServiceRequest, opts ...grpc.CallOption) (*colmetricspb.ExportMetricsServiceResponse, error) {
+	c.requests <- in
+	c.ctx = ctx
+	return c.response, c.responseErr
+}
+
+type spyLogsServiceClient struct {
+	requests    chan *collogspb.ExportLogsServiceRequest
+	response    *collogspb.ExportLogsServiceResponse
+	responseErr error
+	ctx         context.Context
+}
+
+func (c *spyLogsServiceClient) Export(ctx context.Context, in *collogspb.ExportLogsServiceRequest, opts ...grpc.CallOption) (*collogspb.ExportLogsServiceResponse, error) {
 	c.requests <- in
 	c.ctx = ctx
 	return c.response, c.responseErr

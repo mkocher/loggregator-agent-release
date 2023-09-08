@@ -9,8 +9,10 @@ import (
 	"log"
 
 	"code.cloudfoundry.org/go-loggregator/v9/rpc/loggregator_v2"
+	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
+	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -19,6 +21,7 @@ import (
 type Client struct {
 	// The client API for the OTel Collector metrics service
 	msc colmetricspb.MetricsServiceClient
+	lsc collogspb.LogsServiceClient
 	// Context passed to gRPC
 	ctx context.Context
 	// Cancel func invoked on shutdown
@@ -38,6 +41,7 @@ func New(addr string, tlsConfig *tls.Config, l *log.Logger) (*Client, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Client{
 		msc:    colmetricspb.NewMetricsServiceClient(cc),
+		lsc:    collogspb.NewLogsServiceClient(cc),
 		ctx:    ctx,
 		cancel: cancel,
 		l:      l,
@@ -53,6 +57,8 @@ func (c *Client) Write(e *loggregator_v2.Envelope) error {
 		err = c.writeCounter(e)
 	case *loggregator_v2.Envelope_Gauge:
 		err = c.writeGauge(e)
+	case *loggregator_v2.Envelope_Log:
+		err = c.writeLog(e)
 	}
 	// Need to log the error right now because the Forwarder Agent drops
 	// returned errors. If that changes we can remove this conditional.
@@ -65,6 +71,34 @@ func (c *Client) Write(e *loggregator_v2.Envelope) error {
 // Close cancels the underlying context.
 func (c *Client) Close() error {
 	c.cancel()
+	return nil
+}
+
+func (c *Client) writeLog(e *loggregator_v2.Envelope) error {
+	lsr := collogspb.ExportLogsServiceRequest{
+		ResourceLogs: []*logspb.ResourceLogs{
+			{
+				ScopeLogs: []*logspb.ScopeLogs{
+					{
+						LogRecords: []*logspb.LogRecord{
+							{
+								Body: &commonpb.AnyValue{
+									Value: &commonpb.AnyValue_StringValue{
+										StringValue: string(e.GetLog().Payload),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	_, err := c.lsc.Export(c.ctx, &lsr)
+	if err != nil {
+		return err
+	}
+	// return errorOnRejection(resp)
 	return nil
 }
 
